@@ -67,7 +67,7 @@ def validate_pnr_code(pnr: str) -> bool:
     return bool(PNR_REGEX.match(pnr.strip()))
 
 
-def create_security_policies(approval_handler: Optional[Callable] = None) -> List[types.PolicyRule]:
+def create_security_policies(approval_handler: Optional[Callable] = None) -> list:
     """Builds a declarative priority-ordered list of security policy rules.
 
     Safety Policy Precedence:
