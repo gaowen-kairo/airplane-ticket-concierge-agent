@@ -1,7 +1,11 @@
-"""Airplane Ticket Concierge Agent.
+"""Airplane Ticket Concierge Orchestration Agent.
 
-An autonomous AI concierge agent built with the Google Antigravity (AGY) SDK to assist users
-with airplane ticket searches, seat selection, flight details, and ticket reservations.
+An autonomous multi-agent AI system built with the Google Antigravity (AGY) SDK.
+Integrates:
+  - Multi-Agent Pattern: Orchestrator delegating to specialized subagents/tools
+  - Model Routing: Task-based tiering between fast (flash) and reasoning (pro) models
+  - Security Guardrails: Input validation, passport/PNR policies
+  - Human-In-The-Loop (HITL) Hooks: Confirmation interceptor before executing high-stakes transactions
 """
 
 import asyncio
@@ -9,50 +13,76 @@ import os
 import sys
 from typing import Optional
 
-from google.antigravity import Agent, LocalAgentConfig
+from google.antigravity import Agent, LocalAgentConfig, types
 from google.antigravity.types import TemplatedSystemInstructions
 
+from hooks import get_all_hooks, human_approval_handler
+from security import create_security_policies
+from subagents import route_model_for_task
 from tools import ALL_TOOLS
 
-CONCIERGE_SYSTEM_INSTRUCTION = """
-You are SkyConcierge, an elite, professional, and helpful Airplane Ticket Concierge AI agent.
+MAIN_CONCIERGE_SYSTEM_INSTRUCTION = """
+You are SkyConcierge, an elite, professional, and secure Airplane Ticket Concierge AI System.
 
-Your mission is to assist travelers with:
-1. Searching for flights according to origin, destination, dates, and cabin class preferences.
-2. Explaining flight details, itineraries, schedules, and seat choices.
-3. Helping users select seats and view seat maps.
-4. Reserving airplane tickets with passenger details and providing PNR booking references.
-5. Checking or cancelling existing bookings upon user request.
+Architecture & Operations:
+1. Multi-Agent Delegation: You orchestrate travel requests and can spawn subagents or execute specialized tools.
+2. Safety & Security: High-stakes actions (reserving tickets, cancelling bookings) require explicit human confirmation.
+3. Travel Services:
+   - Search flights by origin, destination, date, cabin class.
+   - Inspect seat maps and calculate baggage allowances.
+   - Process ticket reservations (requiring valid passenger name and passport credentials).
+   - Look up or cancel existing PNR bookings.
 
 Guidelines:
-- Always be polite, professional, and clear.
-- Present prices clearly in USD and format flight search results cleanly.
-- Before making a reservation, ensure key passenger details (full legal name, passport/ID, desired flight, seat choice) are collected.
-- When a reservation is completed, highlight the booking reference (PNR) clearly to the traveler.
-- If a requested flight or seat is unavailable, recommend suitable alternative options.
+- Maintain a polite, professional, and clear tone.
+- Format pricing clearly in USD and present flight schedules in clean markdown tables or bullet points.
+- Before triggering a reservation or cancellation, confirm key travel details with the user.
+- If an action is denied by security policies or user refusal, explain politely and offer alternatives.
 """
 
 
 def create_agent(
     api_key: Optional[str] = None,
     app_data_dir: Optional[str] = None,
+    model: Optional[str] = None,
+    approval_handler=human_approval_handler,
 ) -> Agent:
-    """Factory function to instantiate the Airplane Ticket Concierge Agent.
+    """Factory function to instantiate the main SkyConcierge Orchestration Agent.
+
+    Configures subagent capabilities, security policies, HITL hooks, and model routing.
 
     Args:
         api_key: Optional Gemini API key. If omitted, reads from GEMINI_API_KEY env var.
-        app_data_dir: Optional absolute path for custom artifact and state storage.
+        app_data_dir: Optional storage directory path.
+        model: Optional model override. Defaults to route_model_for_task('complex').
+        approval_handler: Human-in-the-loop approval handler function.
 
     Returns:
-        An instantiated Agent object ready for use in async context manager.
+        Instantiated Agent object ready for use in async context manager.
     """
+    selected_model = model or route_model_for_task("complex")
     templated_si = TemplatedSystemInstructions(
-        identity=CONCIERGE_SYSTEM_INSTRUCTION
+        identity=MAIN_CONCIERGE_SYSTEM_INSTRUCTION
+    )
+
+    # 1. Security policies & guardrails
+    policies = create_security_policies(approval_handler=approval_handler)
+
+    # 2. Lifecycle hooks
+    registered_hooks = get_all_hooks()
+
+    # 3. Capability configuration: enable subagent spawning and write tools
+    capabilities = types.CapabilitiesConfig(
+        enable_subagents=True,
     )
 
     config_kwargs = {
+        "model": selected_model,
         "tools": ALL_TOOLS,
         "system_instructions": templated_si,
+        "policies": policies,
+        "hooks": registered_hooks,
+        "capabilities": capabilities,
     }
 
     if api_key:
@@ -65,9 +95,12 @@ def create_agent(
 
 
 async def run_interactive_loop(agent: Agent):
-    """Custom interactive loop for interacting with the concierge agent via CLI."""
-    print("\nStarting interactive session with SkyConcierge.")
-    print("Type 'exit' or 'quit' to end the session.\n")
+    """Interactive terminal execution loop with SkyConcierge."""
+    print("\n==================================================")
+    print(" 🛫 SkyConcierge Multi-Agent System Ready ")
+    print(" (Multi-Agent • Model Router • HITL Security) ")
+    print(" Type 'exit' or 'quit' to end session.")
+    print("==================================================\n")
 
     while True:
         try:
@@ -94,11 +127,7 @@ async def run_interactive_loop(agent: Agent):
 
 
 async def main():
-    """Main entry point for running interactive terminal chat with SkyConcierge agent."""
-    print("==================================================")
-    print("  Welcome to SkyConcierge - Airplane Ticket Agent ")
-    print("==================================================")
-
+    """Main entry point for interactive terminal chat."""
     agent = create_agent()
     async with agent:
         await run_interactive_loop(agent)
@@ -106,4 +135,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-

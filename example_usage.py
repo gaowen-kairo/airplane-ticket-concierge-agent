@@ -1,45 +1,65 @@
-"""Example script demonstrating programmatic usage of the Airplane Ticket Concierge Agent."""
+"""Comprehensive example demonstrating Multi-Agent patterns, Model Routing, Security Guardrails, and HITL hooks."""
 
 import asyncio
 from agent import create_agent
+from security import validate_passport_number
+from subagents import route_model_for_task
 
 
 async def run_example():
-    """Runs a multi-turn travel search and reservation conversation with SkyConcierge."""
-    print("Initializing SkyConcierge Agent...")
+    """Runs demonstration of SkyConcierge multi-agent system features."""
+    print("==================================================")
+    print(" 🚀 SkyConcierge Advanced Features Demonstration ")
+    print("==================================================")
+
+    # Demonstrate Model Router
+    print("\n[1] Testing Model Router:")
+    search_model = route_model_for_task("search")
+    booking_model = route_model_for_task("booking")
+    print(f"  • Search task model tier:    '{search_model}' (Fast)")
+    print(f"  • Booking task model tier:   '{booking_model}' (Reasoning)")
+
+    # Demonstrate Security Guardrail
+    print("\n[2] Testing Passport Guardrail Validation:")
+    valid_pass = "P12345678"
+    invalid_pass = "bad_pass; DROP TABLE users;"
+    print(f"  • Passport '{valid_pass}':    Valid={validate_passport_number(valid_pass)}")
+    print(f"  • Passport '{invalid_pass}': Valid={validate_passport_number(invalid_pass)}")
+
+    print("\n[3] Initializing Main Concierge Agent...")
     agent = create_agent()
 
     async with agent:
-        # Turn 1: Search for flights
-        print("\n--- User Turn 1 ---")
-        prompt1 = "Hi! I need to find flights from SFO to JFK on 2026-09-15 in Economy."
-        print(f"User: {prompt1}")
+        # Scenario A: Search query (Read-only, allowed by policy)
+        print("\n--- Scenario A: Flight Search (Policy: Allowed) ---")
+        prompt_a = "Search for flights from SFO to JFK on 2026-09-15."
+        print(f"User: {prompt_a}")
         
-        response1 = await agent.chat(prompt1)
+        response_a = await agent.chat(prompt_a)
         print("SkyConcierge: ", end="")
-        async for token in response1:
+        async for token in response_a:
             print(token, end="", flush=True)
         print()
 
-        # Turn 2: Reserve ticket
-        print("\n--- User Turn 2 ---")
-        prompt2 = "Great! Please book me on flight AA-101 for passenger Alex Morgan, Passport P12345678, seat 12A."
-        print(f"User: {prompt2}")
+        # Scenario B: Reserve ticket (High-Stakes, triggers HITL Hook)
+        print("\n--- Scenario B: Reserve Ticket (Policy: High-Stakes HITL Hook) ---")
+        prompt_b = "Reserve seat 12A on flight AA-101 for passenger Alex Morgan, Passport P12345678."
+        print(f"User: {prompt_b}")
         
-        response2 = await agent.chat(prompt2)
+        response_b = await agent.chat(prompt_b)
         print("SkyConcierge: ", end="")
-        async for token in response2:
+        async for token in response_b:
             print(token, end="", flush=True)
         print()
 
-        # Turn 3: Check booking confirmation
-        print("\n--- User Turn 3 ---")
-        prompt3 = "Can you show me my booking details to make sure everything is confirmed?"
-        print(f"User: {prompt3}")
+        # Scenario C: Check booking confirmation
+        print("\n--- Scenario C: Check Booking Details ---")
+        prompt_c = "Show my booking details."
+        print(f"User: {prompt_c}")
         
-        response3 = await agent.chat(prompt3)
+        response_c = await agent.chat(prompt_c)
         print("SkyConcierge: ", end="")
-        async for token in response3:
+        async for token in response_c:
             print(token, end="", flush=True)
         print()
 

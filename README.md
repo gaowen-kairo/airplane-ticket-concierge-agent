@@ -1,111 +1,97 @@
 # Airplane Ticket Concierge Agent (SkyConcierge)
 
-An autonomous AI travel concierge agent built with the [Google Antigravity (AGY) SDK](file:///usr/local/google/home/gaowen/.gemini/config/plugins/google-antigravity-sdk/skills/google-antigravity-sdk/SKILL.md) to assist travelers with flight searches, seat maps, flight details, and ticket reservations.
+An enterprise-grade autonomous AI travel concierge system built with the [Google Antigravity (AGY) SDK](file:///usr/local/google/home/gaowen/.gemini/config/plugins/google-antigravity-sdk/skills/google-antigravity-sdk/SKILL.md).
+
+SkyConcierge features a **multi-agent architecture**, **dynamic model routing**, **declarative security guardrails**, and **human-in-the-loop (HITL) approval hooks** for high-stakes actions like flight reservations and booking cancellations.
 
 ---
 
-## Features
+## Key Architectural Capabilities
 
-- 🛫 **Flight Search**: Search direct flights between major airport hubs by origin, destination, date, and cabin class.
-- 📋 **Flight Details**: View detailed schedules, aircraft info, and pricing.
-- 💺 **Seat Map & Selection**: Inspect open seats and pick preferred seating for passengers.
-- 🎫 **Ticket Reservation**: Reserve tickets with passenger names and passport credentials, returning confirmation PNRs.
-- 🔄 **Session State Management**: Remembers reservations made within the active session via AGY `ToolContext`.
-- ❌ **Booking Cancellation**: Cancel existing reservations and update booking status.
+### 🤖 1. Multi-Agent Delegation Pattern
+- **Main Orchestrator (`SkyConcierge`)**: Manages end-to-end conversation flow, evaluates user requests, and orchestrates sub-agent sub-tasks.
+- **Flight Search Specialist (`FlightSearchSpecialist`)**: Subagent specialized in querying schedules, airport codes, seat maps, and baggage allowances.
+- **Booking & Reservation Specialist (`BookingSpecialist`)**: Subagent focused on processing passenger identity verification, PNR creation, and cancellation lifecycles.
+
+### ⚡ 2. Task-Based Model Routing
+- **Fast Tier (`gemini-3.5-flash`)**: Low-latency model utilized for read-only lookups, flight search queries, seat maps, and baggage fee rules.
+- **High-Reasoning Tier (`gemini-3.5-pro`)**: High-precision model utilized for identity validation, reservation processing, and security policy verification.
+
+### 🛡️ 3. Declarative Security Guardrails
+Built using `google.antigravity.hooks.policy`:
+- **Passport Guardrail Predicate**: Validates passport strings against regex format rules and guards against prompt injection keywords before allowing reservation tools to run.
+- **Priority Policy Evaluation**:
+  1. *Deny*: Rejects invalid or malicious passport credentials automatically.
+  2. *Ask User*: Triggers human approval for high-stakes state changes (`reserve_ticket`, `cancel_booking`).
+  3. *Allow*: Grants permission for read-only inquiry tools (`search_flights`, `get_flight_details`, `check_seat_map`, `calculate_baggage_fees`).
+
+### 👤 4. Human-In-The-Loop (HITL) Hooks
+- **Pre-Tool Call Interceptor (`human_approval_handler`)**: Before executing any high-stakes transaction (`reserve_ticket`, `cancel_booking`), the system intercepts the execution, displays transaction details (flight, passenger, seat, price), and prompts for explicit human approval.
 
 ---
 
-## Directory Structure
+## Project Structure
 
 ```text
 .
-├── README.md           # Project documentation and guide
-├── requirements.txt    # Dependency requirements
-├── agent.py            # Main Agent setup, configuration & interactive entry point
-├── tools.py            # Flight search, seat map, and booking tools
-└── example_usage.py    # Example script showing programmatic multi-turn usage
+├── README.md           # Architecture, security policy & usage guide
+├── requirements.txt    # Package dependencies
+├── agent.py            # Main SkyConcierge orchestrator & interactive CLI entry point
+├── subagents.py        # Search and Booking specialist subagents & model router
+├── security.py         # Declarative policy rules, passport & PNR guardrails
+├── hooks.py            # Human-in-the-loop approval handler & lifecycle hooks
+├── tools.py            # Flight search, seat map, reservation, and baggage tools
+└── example_usage.py    # Demonstration of multi-agent, router, security & HITL features
 ```
 
 ---
 
-## Prerequisites & Installation
+## Installation & Setup
 
-### 1. Python Environment
-
-Ensure Python 3.10+ is installed. Install required packages:
+### 1. Install Dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. API Key Setup
-
-The Google Antigravity SDK uses Gemini models and requires a valid API key.
-
-1. Obtain an API Key from [Google AI Studio](https://aistudio.google.com/app/api-keys).
-2. Set the `GEMINI_API_KEY` environment variable:
+### 2. Configure Gemini API Key
 
 ```bash
-export GEMINI_API_KEY="your-api-key-here"
+export GEMINI_API_KEY="your-gemini-api-key"
 ```
-
-Alternatively, pass `api_key` explicitly to `create_agent(api_key="...")`.
 
 ---
 
-## Usage
+## Running SkyConcierge
 
-### Interactive Terminal Mode
-
-To chat interactively with the SkyConcierge agent in your terminal:
+### Interactive Terminal CLI
 
 ```bash
 python agent.py
 ```
 
-### Programmatic Usage
-
-You can also run the provided example multi-turn demonstration script:
+### Feature Demonstration Script
 
 ```bash
 python example_usage.py
 ```
 
-Or import `create_agent` into your own Python codebase:
-
-```python
-import asyncio
-from agent import create_agent
-
-async def main():
-    agent = create_agent()
-    async with agent:
-        response = await agent.chat("Search flights from SFO to JFK for 2026-09-15.")
-        async for chunk in response:
-            print(chunk, end="", flush=True)
-
-if __name__ == "__main__":
-    asyncio.run(main())
-```
-
 ---
 
-## Concierge Tools Reference
+## Tools Reference
 
-Defined in [`tools.py`](file:///usr/local/google/home/gaowen/workspace/airplane-ticket-concierge-agent/tools.py):
-
-| Tool Function | Description |
-|---|---|
-| `search_flights` | Searches available flight options given origin, destination, date, and cabin class. |
-| `get_flight_details` | Retrieves schedule, duration, airline, and open seats for a flight number. |
-| `check_seat_map` | Displays seat layout and open seats for a given flight number. |
-| `reserve_ticket` | Books a ticket for a passenger on a flight, generating a 6-character PNR reference. |
-| `get_booking_details` | Retrieves booking details for a given PNR from current session state. |
-| `cancel_booking` | Cancels an existing ticket reservation by PNR reference and restores seat availability. |
-| `calculate_baggage_fees` | Calculates checked baggage allowance and extra baggage fees by cabin class. |
+| Tool | Action Type | Security Policy | Handler |
+|---|---|---|---|
+| `search_flights` | Read-only | `policy.allow` | Unrestricted |
+| `get_flight_details` | Read-only | `policy.allow` | Unrestricted |
+| `check_seat_map` | Read-only | `policy.allow` | Unrestricted |
+| `calculate_baggage_fees` | Read-only | `policy.allow` | Unrestricted |
+| `get_booking_details` | Read-only | `policy.allow` | Unrestricted |
+| `reserve_ticket` | **High-Stakes** | `policy.ask_user` + Passport Guardrail | `human_approval_handler` |
+| `cancel_booking` | **High-Stakes** | `policy.ask_user` | `human_approval_handler` |
 
 ---
 
 ## License
 
-Internal / Project Template. Built with Google Antigravity SDK.
+Built with Google Antigravity SDK. Internal Project Template.
