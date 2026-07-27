@@ -19,7 +19,7 @@ from typing import Optional
 from google.antigravity import Agent, LocalAgentConfig, types
 from google.antigravity.types import TemplatedSystemInstructions
 
-from database import async_init_db
+from database import _init_db_tables
 from hooks import get_all_hooks, human_approval_handler
 from security import create_security_policies
 from subagents import route_model_for_task
@@ -70,8 +70,8 @@ def create_agent(
     Returns:
         Instantiated Agent object ready for use in async context manager.
     """
-    # 1. Initialize persistent database tables
-    asyncio.run(async_init_db())
+    # 1. Synchronously initialize persistent database tables if needed
+    _init_db_tables()
 
     selected_model = model or route_model_for_task("complex")
     templated_si = TemplatedSystemInstructions(

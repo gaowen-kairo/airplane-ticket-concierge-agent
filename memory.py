@@ -131,7 +131,7 @@ async def async_compact_history(conversation_id: str, recent_turns: List[Dict[st
 
 # --- Agent Tools for Memory & Compaction ---
 
-def save_user_preference(
+async def save_user_preference(
     key: str,
     value: str,
     ctx: Optional[ToolContext] = None,
@@ -144,7 +144,7 @@ def save_user_preference(
         ctx: Injected ToolContext.
     """
     user_id = "default_user"
-    asyncio.run(async_save_user_memory(user_id, key, value))
+    await async_save_user_memory(user_id, key, value)
 
     if ctx:
         prefs = ctx.get_state("user_preferences", {})
@@ -154,12 +154,12 @@ def save_user_preference(
     return f"Saved user preference '{key}': '{value}' persistently."
 
 
-def recall_user_preferences(
+async def recall_user_preferences(
     ctx: Optional[ToolContext] = None,
 ) -> str:
     """Recalls all saved travel preferences and memories for the user."""
     user_id = "default_user"
-    memories = asyncio.run(async_get_user_memories(user_id))
+    memories = await async_get_user_memories(user_id)
 
     if not memories:
         return "No travel preferences or saved memories found for user."
@@ -171,7 +171,7 @@ def recall_user_preferences(
     return "\n".join(lines)
 
 
-def compact_conversation_memory(
+async def compact_conversation_memory(
     ctx: Optional[ToolContext] = None,
 ) -> str:
     """Compacts long conversation turns into a summarized memory state to optimize context window size."""
@@ -185,7 +185,7 @@ def compact_conversation_memory(
             {"role": "Agent", "content": "Provided flight AA-101 and UA-405 details"},
         ]
 
-    summary = asyncio.run(async_compact_history(cid, history))
+    summary = await async_compact_history(cid, history)
 
     if ctx:
         ctx.set_state("compacted_context_summary", summary)

@@ -22,7 +22,7 @@ from memory import (
 )
 
 
-def search_flights(
+async def search_flights(
     origin: str,
     destination: str,
     departure_date: str,
@@ -38,7 +38,7 @@ def search_flights(
         return_date: Optional return date in YYYY-MM-DD format for round trips.
         cabin_class: Cabin class preference ('economy', 'premium economy', 'business', 'first', or 'any').
     """
-    matches = asyncio.run(async_search_flights(origin, destination, cabin_class))
+    matches = await async_search_flights(origin, destination, cabin_class)
 
     if not matches:
         return (
@@ -64,13 +64,13 @@ def search_flights(
     return "\n".join(results)
 
 
-def get_flight_details(flight_number: str) -> str:
+async def get_flight_details(flight_number: str) -> str:
     """Retrieves full details for a specific flight by flight number from database.
 
     Args:
         flight_number: Flight code string (e.g., 'AA-101', 'UA-405').
     """
-    flight = asyncio.run(async_get_flight(flight_number))
+    flight = await async_get_flight(flight_number)
     if not flight:
         return f"Flight number {flight_number} not found in the flight schedules database."
 
@@ -87,13 +87,13 @@ def get_flight_details(flight_number: str) -> str:
     )
 
 
-def check_seat_map(flight_number: str) -> str:
+async def check_seat_map(flight_number: str) -> str:
     """Displays seat availability map for a specific flight.
 
     Args:
         flight_number: Flight code string (e.g., 'AA-101').
     """
-    flight = asyncio.run(async_get_flight(flight_number))
+    flight = await async_get_flight(flight_number)
     if not flight:
         return f"Flight {flight_number} not found."
 
@@ -106,7 +106,7 @@ def check_seat_map(flight_number: str) -> str:
     )
 
 
-def reserve_ticket(
+async def reserve_ticket(
     flight_number: str,
     passenger_name: str,
     passport_number: str,
@@ -123,7 +123,7 @@ def reserve_ticket(
         ctx: Injected ToolContext for maintaining session state.
     """
     try:
-        record = asyncio.run(async_reserve_ticket(flight_number, passenger_name, passport_number, seat_number))
+        record = await async_reserve_ticket(flight_number, passenger_name, passport_number, seat_number)
     except Exception as e:
         return f"Error creating reservation: {e}"
 
@@ -144,7 +144,7 @@ def reserve_ticket(
     )
 
 
-def get_booking_details(
+async def get_booking_details(
     booking_reference: str,
     ctx: Optional[ToolContext] = None,
 ) -> str:
@@ -154,7 +154,7 @@ def get_booking_details(
         booking_reference: The 6-character booking PNR code.
         ctx: Injected ToolContext.
     """
-    record = asyncio.run(async_get_booking(booking_reference))
+    record = await async_get_booking(booking_reference)
 
     if record:
         return (
@@ -172,7 +172,7 @@ def get_booking_details(
     return f"No persistent booking record found for reference '{booking_reference}' in database."
 
 
-def cancel_booking(
+async def cancel_booking(
     booking_reference: str,
     ctx: Optional[ToolContext] = None,
 ) -> str:
@@ -183,7 +183,7 @@ def cancel_booking(
         ctx: Injected ToolContext.
     """
     try:
-        record = asyncio.run(async_cancel_booking(booking_reference))
+        record = await async_cancel_booking(booking_reference)
         return (
             f"Booking {record['booking_reference']} for passenger {record['passenger_name']} "
             f"has been CANCELLED in database. Seat {record['seat_number']} restored to flight inventory."
