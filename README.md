@@ -101,7 +101,8 @@ Defined in [`tools.py`](file:///usr/local/google/home/gaowen/workspace/airplane-
 | `check_seat_map` | Displays seat layout and open seats for a given flight number. |
 | `reserve_ticket` | Books a ticket for a passenger on a flight, generating a 6-character PNR reference. |
 | `get_booking_details` | Retrieves booking details for a given PNR from current session state. |
-| `cancel_booking` | Cancels an existing ticket reservation by PNR reference. |
+| `cancel_booking` | Cancels an existing ticket reservation by PNR reference and restores seat availability. |
+| `calculate_baggage_fees` | Calculates checked baggage allowance and extra baggage fees by cabin class. |
 
 ---
 

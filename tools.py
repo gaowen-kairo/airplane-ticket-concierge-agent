@@ -1,7 +1,8 @@
 """Tools for the Airplane Ticket Concierge Agent.
 
-This module defines the custom functions available to the concierge agent
-for searching flights, retrieving seat maps, making reservations, and managing bookings.
+This module defines custom tool functions available to the SkyConcierge AI agent
+for searching flight schedules, displaying seat maps, creating ticket reservations,
+calculating baggage allowances, and managing booking lifecycles.
 """
 
 import random
@@ -9,7 +10,7 @@ import string
 from typing import Optional
 from google.antigravity import ToolContext
 
-# In-memory mock database of flight offers
+# In-memory mock database of flight schedules and seat availability
 MOCK_FLIGHTS = [
     {
         "flight_number": "AA-101",
@@ -88,7 +89,7 @@ def search_flights(
         destination: 3-letter IATA airport code for destination (e.g., 'JFK', 'ORD', 'LHR').
         departure_date: Departure date in YYYY-MM-DD format.
         return_date: Optional return date in YYYY-MM-DD format for round trips.
-        cabin_class: Cabin class preference ('economy', 'premium economy', 'business', 'first').
+        cabin_class: Cabin class preference ('economy', 'premium economy', 'business', 'first', or 'any').
     """
     origin_clean = origin.strip().upper()
     dest_clean = destination.strip().upper()
@@ -111,11 +112,12 @@ def search_flights(
         f"Found {len(matches)} flight(s) from {origin_clean} to {dest_clean} on {departure_date}:"
     ]
     for flight in matches:
+        open_seats_str = ", ".join(flight["available_seats"]) if flight["available_seats"] else "None (Sold Out)"
         results.append(
             f"- Flight {flight['flight_number']} ({flight['airline']}): "
             f"Departs {flight['departure_time']} -> Arrives {flight['arrival_time']} "
             f"({flight['duration']}) | Class: {flight['cabin_class'].title()} | "
-            f"Price: ${flight['price_usd']:.2f} | Available Seats: {', '.join(flight['available_seats'])}"
+            f"Price: ${flight['price_usd']:.2f} | Available Seats: {open_seats_str}"
         )
 
     if return_date:
@@ -133,6 +135,7 @@ def get_flight_details(flight_number: str) -> str:
     flight_code = flight_number.strip().upper()
     for flight in MOCK_FLIGHTS:
         if flight["flight_number"] == flight_code:
+            open_seats = ", ".join(flight["available_seats"]) if flight["available_seats"] else "Sold Out"
             return (
                 f"Flight Details for {flight['flight_number']}:\n"
                 f"Airline: {flight['airline']}\n"
@@ -141,7 +144,7 @@ def get_flight_details(flight_number: str) -> str:
                 f"Duration: {flight['duration']}\n"
                 f"Cabin Class: {flight['cabin_class'].title()}\n"
                 f"Price: ${flight['price_usd']:.2f}\n"
-                f"Seats Open: {', '.join(flight['available_seats'])}"
+                f"Seats Open: {open_seats}"
             )
 
     return f"Flight number {flight_code} not found in the flight schedules database."
@@ -157,9 +160,10 @@ def check_seat_map(flight_number: str) -> str:
     for flight in MOCK_FLIGHTS:
         if flight["flight_number"] == flight_code:
             seats = flight["available_seats"]
+            seats_str = ", ".join(seats) if seats else "No open seats remaining"
             return (
                 f"Seat Map for Flight {flight_code} ({flight['airline']}):\n"
-                f"Available Seats: {', '.join(seats)}\n"
+                f"Available Seats: {seats_str}\n"
                 f"Cabin: {flight['cabin_class'].title()}"
             )
     return f"Flight {flight_code} not found."
@@ -193,15 +197,24 @@ def reserve_ticket(
         return f"Error: Flight {flight_code} does not exist."
 
     available = target_flight["available_seats"]
+    if not available:
+        return f"Error: Flight {flight_code} is sold out. No seats available."
+
     if seat_number:
         seat_clean = seat_number.strip().upper()
         if seat_clean not in available:
-            return f"Error: Seat {seat_clean} is not available on flight {flight_code}. Open seats: {', '.join(available)}"
+            return (
+                f"Error: Seat {seat_clean} is not available on flight {flight_code}. "
+                f"Open seats: {', '.join(available)}"
+            )
         selected_seat = seat_clean
     else:
-        selected_seat = available[0] if available else "14B"
+        selected_seat = available[0]
 
-    # Generate PNR / Booking reference
+    # Remove selected seat from flight's open seat list
+    available.remove(selected_seat)
+
+    # Generate PNR / Booking reference (6 alphanumeric uppercase characters)
     pnr = "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
 
     booking_record = {
@@ -278,11 +291,65 @@ def cancel_booking(
         user_bookings = ctx.get_state("user_bookings", [])
         for booking in user_bookings:
             if booking["booking_reference"] == ref_clean:
+                if booking["status"] == "CANCELLED":
+                    return f"Booking {ref_clean} is already CANCELLED."
+
                 booking["status"] = "CANCELLED"
                 ctx.set_state("user_bookings", user_bookings)
-                return f"Booking {ref_clean} for passenger {booking['passenger_name']} has been CANCELLED. Refund issued."
 
-    return f"Unable to cancel. Booking reference '{ref_clean}' was not found."
+                # Return seat back to flight's available seat pool
+                flight_code = booking["flight_number"]
+                seat = booking["seat_number"]
+                for f in MOCK_FLIGHTS:
+                    if f["flight_number"] == flight_code:
+                        if seat not in f["available_seats"]:
+                            f["available_seats"].append(seat)
+                            f["available_seats"].sort()
+                        break
+
+                return f"Booking {ref_clean} for passenger {booking['passenger_name']} has been CANCELLED. Refund issued to original payment method."
+
+    return f"Unable to cancel. Booking reference '{ref_clean}' was not found in active session."
+
+
+def calculate_baggage_fees(
+    cabin_class: str = "economy",
+    checked_bags: int = 1,
+) -> str:
+    """Calculates checked baggage allowances and estimated baggage fees.
+
+    Args:
+        cabin_class: Travel cabin class ('economy', 'premium economy', 'business', 'first').
+        checked_bags: Total number of checked bags.
+    """
+    class_clean = cabin_class.strip().lower()
+
+    if class_clean in ("business", "first"):
+        included_bags = 2
+        fee_per_extra_bag = 50.0
+    elif class_clean == "premium economy":
+        included_bags = 2
+        fee_per_extra_bag = 40.0
+    else:
+        included_bags = 1
+        fee_per_extra_bag = 35.0
+
+    if checked_bags <= included_bags:
+        return (
+            f"For {cabin_class.title()} class, {included_bags} checked bag(s) are included free of charge. "
+            f"Total baggage fee: $0.00."
+        )
+
+    extra = checked_bags - included_bags
+    total_fee = extra * fee_per_extra_bag
+
+    return (
+        f"Baggage Policy for {cabin_class.title()} Class:\n"
+        f"Included Bags: {included_bags}\n"
+        f"Extra Checked Bags: {extra}\n"
+        f"Fee per Extra Bag: ${fee_per_extra_bag:.2f}\n"
+        f"Total Checked Baggage Fee: ${total_fee:.2f}"
+    )
 
 
 ALL_TOOLS = [
@@ -292,4 +359,5 @@ ALL_TOOLS = [
     reserve_ticket,
     get_booking_details,
     cancel_booking,
+    calculate_baggage_fees,
 ]
