@@ -1,7 +1,7 @@
-"""Lifecycle and Human-In-The-Loop (HITL) Hooks for Airplane Ticket Concierge Agent.
+"""Lifecycle, Context Compaction, and Human-In-The-Loop (HITL) Hooks for Airplane Ticket Concierge Agent.
 
-This module provides hooks to intercept lifecycle events, log turn interactions,
-and enforce human approval before executing high-stakes transactions (e.g. ticket reservation, cancellation).
+This module provides hooks to intercept lifecycle events, handle history context compaction events,
+log turn interactions, and enforce human approval before executing high-stakes transactions.
 """
 
 import sys
@@ -25,7 +25,7 @@ async def human_approval_handler(tool_call: types.ToolCall) -> bool:
     print(f"\n==================================================")
     print(f" ⚠️  HIGH-STAKES ACTION REQUIRES APPROVAL: {name}")
     print(f"==================================================")
-    
+
     if name == "reserve_ticket":
         print(f"  • Flight Number:   {args.get('flight_number')}")
         print(f"  • Passenger Name:  {args.get('passenger_name')}")
@@ -59,14 +59,7 @@ async def human_approval_handler(tool_call: types.ToolCall) -> bool:
 
 @hooks.pre_tool_call_decide
 async def audit_pre_tool_call(tool_call: types.ToolCall) -> types.HookResult:
-    """Audit logging hook that runs before any tool execution.
-
-    Args:
-        tool_call: The pending tool invocation.
-
-    Returns:
-        HookResult allowing or denying execution.
-    """
+    """Audit logging hook that runs before any tool execution."""
     tool_name = tool_call.name
     print(f"\n[Audit Hook] Pre-tool execution intercept: '{tool_name}'")
     return types.HookResult(allow=True)
@@ -74,26 +67,26 @@ async def audit_pre_tool_call(tool_call: types.ToolCall) -> types.HookResult:
 
 @hooks.pre_turn
 async def log_pre_turn(prompt: str) -> types.HookResult:
-    """Pre-turn hook to inspect incoming user prompt.
-
-    Args:
-        prompt: User input prompt string.
-
-    Returns:
-        HookResult allowing the turn to proceed.
-    """
-    # Simple check for empty prompts
+    """Pre-turn hook to inspect incoming user prompt."""
     if not prompt or not prompt.strip():
         return types.HookResult(allow=False, reason="Empty prompt")
 
-    return types.HookResult(allow=True)
+    return types.HookResult(allow=False if not prompt else True)
 
 
 @hooks.post_turn
 async def log_post_turn(response_text: str):
     """Post-turn hook invoked after response generation completes."""
-    # Useful for audit logging or metrics collection
     pass
+
+
+@hooks.on_compaction
+async def on_compaction_event(data):
+    """Context Compaction Hook.
+
+    Invoked when conversation trajectory history context compaction occurs.
+    """
+    print(f"\n[Compaction Hook] 🧹 History Context Compaction Event Intercepted. Compacting turn trajectory...")
 
 
 def get_all_hooks():
@@ -102,4 +95,5 @@ def get_all_hooks():
         audit_pre_tool_call,
         log_pre_turn,
         log_post_turn,
+        on_compaction_event,
     ]

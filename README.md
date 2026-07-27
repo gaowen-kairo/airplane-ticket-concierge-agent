@@ -2,31 +2,35 @@
 
 An enterprise-grade autonomous AI travel concierge system built with the [Google Antigravity (AGY) SDK](file:///usr/local/google/home/gaowen/.gemini/config/plugins/google-antigravity-sdk/skills/google-antigravity-sdk/SKILL.md).
 
-SkyConcierge features a **multi-agent architecture**, **dynamic model routing**, **declarative security guardrails**, and **human-in-the-loop (HITL) approval hooks** for high-stakes actions like flight reservations and booking cancellations.
+SkyConcierge features a **multi-agent architecture**, **task-based model routing**, **declarative security guardrails**, **human-in-the-loop (HITL) hooks**, **persistent SQLite database storage**, **history context compaction**, and **async memory operations**.
 
 ---
 
 ## Key Architectural Capabilities
 
-### 🤖 1. Multi-Agent Delegation Pattern
-- **Main Orchestrator (`SkyConcierge`)**: Manages end-to-end conversation flow, evaluates user requests, and orchestrates sub-agent sub-tasks.
+### 💾 1. Persistent SQLite Database Storage
+- **Database Backend (`concierge.db`)**: Replaces transient in-memory dictionaries with a persistent, thread-safe SQLite database handled asynchronously via `database.py`.
+- **Flight & Reservation Schema**: Stores flight inventories, seat allocations, PNR booking records, traveler identity profiles, and context compaction summaries.
+- **Survives Restart**: All ticket reservations, PNR references, seat map changes, and traveler profiles survive application restarts.
+
+### 🧠 2. History Context Compaction & Trajectory Persistence
+- **Context Compaction Hook (`@hooks.on_compaction`)**: Automatically listens to context window compaction events.
+- **Trajectory Persistence (`save_dir` & `conversation_id`)**: Persists conversation trajectories to disk, allowing session resumption.
+- **Memory Compaction Tool (`compact_conversation_memory`)**: Summarizes long turn histories into structured state memory to optimize prompt token limits.
+
+### ⚡ 3. Async Memory Operations
+- **Async Memory Read/Write**: Asynchronously stores, updates, and recalls user travel preferences, loyalty numbers, and dietary requirements using `memory.py` (`async_save_user_memory`, `async_get_user_memories`).
+- **Memory Tools**: Integrated agent tools (`save_user_preference`, `recall_user_preferences`).
+
+### 🤖 4. Multi-Agent Delegation Pattern
+- **Main Orchestrator (`SkyConcierge`)**: Manages end-to-end conversation flow and coordinates specialized subagents.
 - **Flight Search Specialist (`FlightSearchSpecialist`)**: Subagent specialized in querying schedules, airport codes, seat maps, and baggage allowances.
-- **Booking & Reservation Specialist (`BookingSpecialist`)**: Subagent focused on processing passenger identity verification, PNR creation, and cancellation lifecycles.
+- **Booking Specialist (`BookingSpecialist`)**: Subagent focused on processing passenger identity verification, PNR creation, and cancellation lifecycles.
 
-### ⚡ 2. Task-Based Model Routing
-- **Fast Tier (`gemini-3.5-flash`)**: Low-latency model utilized for read-only lookups, flight search queries, seat maps, and baggage fee rules.
-- **High-Reasoning Tier (`gemini-3.5-pro`)**: High-precision model utilized for identity validation, reservation processing, and security policy verification.
-
-### 🛡️ 3. Declarative Security Guardrails
-Built using `google.antigravity.hooks.policy`:
-- **Passport Guardrail Predicate**: Validates passport strings against regex format rules and guards against prompt injection keywords before allowing reservation tools to run.
-- **Priority Policy Evaluation**:
-  1. *Deny*: Rejects invalid or malicious passport credentials automatically.
-  2. *Ask User*: Triggers human approval for high-stakes state changes (`reserve_ticket`, `cancel_booking`).
-  3. *Allow*: Grants permission for read-only inquiry tools (`search_flights`, `get_flight_details`, `check_seat_map`, `calculate_baggage_fees`).
-
-### 👤 4. Human-In-The-Loop (HITL) Hooks
-- **Pre-Tool Call Interceptor (`human_approval_handler`)**: Before executing any high-stakes transaction (`reserve_ticket`, `cancel_booking`), the system intercepts the execution, displays transaction details (flight, passenger, seat, price), and prompts for explicit human approval.
+### 🎯 5. Model Routing & Security Guardrails
+- **Fast Tier (`gemini-3.5-flash`)**: Low-latency model for read-only lookups and flight searches.
+- **Reasoning Tier (`gemini-3.5-pro`)**: High-precision model for identity validation and reservations.
+- **Human-In-The-Loop (HITL) Approval Hooks**: Intercepts high-stakes transactions (`reserve_ticket`, `cancel_booking`) for user confirmation.
 
 ---
 
@@ -34,14 +38,16 @@ Built using `google.antigravity.hooks.policy`:
 
 ```text
 .
-├── README.md           # Architecture, security policy & usage guide
+├── README.md           # System architecture, database, & usage guide
 ├── requirements.txt    # Package dependencies
 ├── agent.py            # Main SkyConcierge orchestrator & interactive CLI entry point
+├── database.py         # Persistent SQLite database storage & async CRUD queries
+├── memory.py           # Async user memory persistence & history context compaction
 ├── subagents.py        # Search and Booking specialist subagents & model router
 ├── security.py         # Declarative policy rules, passport & PNR guardrails
-├── hooks.py            # Human-in-the-loop approval handler & lifecycle hooks
-├── tools.py            # Flight search, seat map, reservation, and baggage tools
-└── example_usage.py    # Demonstration of multi-agent, router, security & HITL features
+├── hooks.py            # Compaction hook, HITL approval handler & lifecycle hooks
+├── tools.py            # Database-backed flight search, seat map, reservation, & baggage tools
+└── example_usage.py    # Demonstration of database persistence, async memory & compaction
 ```
 
 ---
@@ -75,20 +81,6 @@ python agent.py
 ```bash
 python example_usage.py
 ```
-
----
-
-## Tools Reference
-
-| Tool | Action Type | Security Policy | Handler |
-|---|---|---|---|
-| `search_flights` | Read-only | `policy.allow` | Unrestricted |
-| `get_flight_details` | Read-only | `policy.allow` | Unrestricted |
-| `check_seat_map` | Read-only | `policy.allow` | Unrestricted |
-| `calculate_baggage_fees` | Read-only | `policy.allow` | Unrestricted |
-| `get_booking_details` | Read-only | `policy.allow` | Unrestricted |
-| `reserve_ticket` | **High-Stakes** | `policy.ask_user` + Passport Guardrail | `human_approval_handler` |
-| `cancel_booking` | **High-Stakes** | `policy.ask_user` | `human_approval_handler` |
 
 ---
 

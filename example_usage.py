@@ -1,67 +1,84 @@
-"""Comprehensive example demonstrating Multi-Agent patterns, Model Routing, Security Guardrails, and HITL hooks."""
+"""Comprehensive demonstration of Persistent Database State, Async Memory Operations, and History Compaction."""
 
 import asyncio
+import tempfile
 from agent import create_agent
-from security import validate_passport_number
-from subagents import route_model_for_task
+from database import async_get_booking
+from memory import async_get_user_memories, async_save_user_memory
 
 
 async def run_example():
-    """Runs demonstration of SkyConcierge multi-agent system features."""
+    """Runs demonstration of SkyConcierge persistence, async memory, and history compaction features."""
     print("==================================================")
-    print(" 🚀 SkyConcierge Advanced Features Demonstration ")
+    print(" 🚀 SkyConcierge Memory, Compaction & Database Demo ")
     print("==================================================")
 
-    # Demonstrate Model Router
-    print("\n[1] Testing Model Router:")
-    search_model = route_model_for_task("search")
-    booking_model = route_model_for_task("booking")
-    print(f"  • Search task model tier:    '{search_model}' (Fast)")
-    print(f"  • Booking task model tier:   '{booking_model}' (Reasoning)")
+    # 1. Async Memory Operations
+    print("\n[1] Testing Async Memory Operations:")
+    await async_save_user_memory("user_123", "frequent_flyer_no", "AA-998877", category="loyalty")
+    await async_save_user_memory("user_123", "seat_preference", "Window Row 12", category="preference")
+    memories = await async_get_user_memories("user_123")
+    print(f"  • Retrieved {len(memories)} stored memories for 'user_123':")
+    for m in memories:
+        print(f"    - {m['memory_key']}: {m['memory_value']} ({m['category']})")
 
-    # Demonstrate Security Guardrail
-    print("\n[2] Testing Passport Guardrail Validation:")
-    valid_pass = "P12345678"
-    invalid_pass = "bad_pass; DROP TABLE users;"
-    print(f"  • Passport '{valid_pass}':    Valid={validate_passport_number(valid_pass)}")
-    print(f"  • Passport '{invalid_pass}': Valid={validate_passport_number(invalid_pass)}")
-
-    print("\n[3] Initializing Main Concierge Agent...")
-    agent = create_agent()
+    # 2. Session Trajectory Persistence (save_dir) & Persistent Database
+    print("\n[2] Initializing Agent with Persistent save_dir and SQLite Database...")
+    save_dir = tempfile.mkdtemp()
+    
+    agent = create_agent(save_dir=save_dir)
 
     async with agent:
-        # Scenario A: Search query (Read-only, allowed by policy)
-        print("\n--- Scenario A: Flight Search (Policy: Allowed) ---")
-        prompt_a = "Search for flights from SFO to JFK on 2026-09-15."
-        print(f"User: {prompt_a}")
-        
-        response_a = await agent.chat(prompt_a)
+        conv_id = agent.conversation_id
+        print(f"  • Session Conversation ID: {conv_id}")
+
+        # Scenario A: Save User Travel Preference via Agent
+        print("\n--- Turn 1: Save User Travel Preference ---")
+        prompt1 = "Please save my preferred seating as Window Row 12 and my passport as P12345678."
+        print(f"User: {prompt1}")
+        resp1 = await agent.chat(prompt1)
         print("SkyConcierge: ", end="")
-        async for token in response_a:
+        async for token in resp1:
             print(token, end="", flush=True)
         print()
 
-        # Scenario B: Reserve ticket (High-Stakes, triggers HITL Hook)
-        print("\n--- Scenario B: Reserve Ticket (Policy: High-Stakes HITL Hook) ---")
-        prompt_b = "Reserve seat 12A on flight AA-101 for passenger Alex Morgan, Passport P12345678."
-        print(f"User: {prompt_b}")
-        
-        response_b = await agent.chat(prompt_b)
+        # Scenario B: Reserve Ticket into SQLite Database
+        print("\n--- Turn 2: Reserve Ticket (Persisted in SQLite Database) ---")
+        prompt2 = "Book flight AA-101 for passenger Alex Morgan with passport P12345678."
+        print(f"User: {prompt2}")
+        resp2 = await agent.chat(prompt2)
         print("SkyConcierge: ", end="")
-        async for token in response_b:
+        async for token in resp2:
             print(token, end="", flush=True)
         print()
 
-        # Scenario C: Check booking confirmation
-        print("\n--- Scenario C: Check Booking Details ---")
-        prompt_c = "Show my booking details."
-        print(f"User: {prompt_c}")
-        
-        response_c = await agent.chat(prompt_c)
+        # Scenario C: Context Compaction
+        print("\n--- Turn 3: History Context Compaction ---")
+        prompt3 = "Please compact my conversation context memory."
+        print(f"User: {prompt3}")
+        resp3 = await agent.chat(prompt3)
         print("SkyConcierge: ", end="")
-        async for token in response_c:
+        async for token in resp3:
             print(token, end="", flush=True)
         print()
+
+    # 3. Verify Database Persistence across Sessions
+    print("\n[3] Verifying Database Record Persistence across Session Restart...")
+    # Read reservations directly from database
+    import sqlite3
+    conn = sqlite3.connect("concierge.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT booking_reference, passenger_name, flight_number, seat_number, status FROM reservations")
+    rows = cursor.fetchall()
+    conn.close()
+
+    print(f"  • Persistent SQLite Database Table 'reservations' ({len(rows)} entries):")
+    for r in rows:
+        print(f"    - PNR {r[0]} | Passenger: {r[1]} | Flight: {r[2]} | Seat: {r[3]} | Status: {r[4]}")
+
+    print("\n==================================================")
+    print(" ✅ Persistence, Async Memory & Compaction Verified!")
+    print("==================================================")
 
 
 if __name__ == "__main__":

@@ -1,78 +1,25 @@
 """Tools for the Airplane Ticket Concierge Agent.
 
-This module defines custom tool functions available to the SkyConcierge AI agent
-for searching flight schedules, displaying seat maps, creating ticket reservations,
-calculating baggage allowances, and managing booking lifecycles.
+This module defines custom tool functions available to the SkyConcierge AI agent.
+All reservation and state-changing actions interact asynchronously with the persistent SQLite database.
 """
 
-import random
-import string
+import asyncio
 from typing import Optional
 from google.antigravity import ToolContext
 
-# In-memory mock database of flight schedules and seat availability
-MOCK_FLIGHTS = [
-    {
-        "flight_number": "AA-101",
-        "airline": "American Skyways",
-        "origin": "SFO",
-        "destination": "JFK",
-        "departure_time": "08:00 AM",
-        "arrival_time": "04:30 PM",
-        "duration": "5h 30m",
-        "price_usd": 350.0,
-        "cabin_class": "economy",
-        "available_seats": ["12A", "12B", "14C", "15D", "18A"],
-    },
-    {
-        "flight_number": "AA-202",
-        "airline": "American Skyways",
-        "origin": "SFO",
-        "destination": "JFK",
-        "departure_time": "01:15 PM",
-        "arrival_time": "09:45 PM",
-        "duration": "5h 30m",
-        "price_usd": 720.0,
-        "cabin_class": "business",
-        "available_seats": ["2A", "2B", "3A", "3F"],
-    },
-    {
-        "flight_number": "UA-405",
-        "airline": "United Global",
-        "origin": "SFO",
-        "destination": "JFK",
-        "departure_time": "10:30 AM",
-        "arrival_time": "07:00 PM",
-        "duration": "5h 30m",
-        "price_usd": 310.0,
-        "cabin_class": "economy",
-        "available_seats": ["10A", "11C", "20E", "22F"],
-    },
-    {
-        "flight_number": "DL-882",
-        "airline": "Delta Express",
-        "origin": "LAX",
-        "destination": "ORD",
-        "departure_time": "07:00 AM",
-        "arrival_time": "01:15 PM",
-        "duration": "4h 15m",
-        "price_usd": 280.0,
-        "cabin_class": "economy",
-        "available_seats": ["8A", "9B", "14D"],
-    },
-    {
-        "flight_number": "BA-178",
-        "airline": "British Airways",
-        "origin": "JFK",
-        "destination": "LHR",
-        "departure_time": "06:30 PM",
-        "arrival_time": "06:30 AM (+1)",
-        "duration": "7h 00m",
-        "price_usd": 850.0,
-        "cabin_class": "premium economy",
-        "available_seats": ["12D", "12E", "14A"],
-    },
-]
+from database import (
+    async_cancel_booking,
+    async_get_booking,
+    async_get_flight,
+    async_reserve_ticket,
+    async_search_flights,
+)
+from memory import (
+    compact_conversation_memory,
+    recall_user_preferences,
+    save_user_preference,
+)
 
 
 def search_flights(
@@ -82,7 +29,7 @@ def search_flights(
     return_date: Optional[str] = None,
     cabin_class: str = "economy",
 ) -> str:
-    """Searches for available airplane flights matching origin, destination, and class.
+    """Searches for available airplane flights matching origin, destination, and class from database.
 
     Args:
         origin: 3-letter IATA airport code for origin (e.g., 'SFO', 'LAX', 'JFK').
@@ -91,25 +38,16 @@ def search_flights(
         return_date: Optional return date in YYYY-MM-DD format for round trips.
         cabin_class: Cabin class preference ('economy', 'premium economy', 'business', 'first', or 'any').
     """
-    origin_clean = origin.strip().upper()
-    dest_clean = destination.strip().upper()
-    class_clean = cabin_class.strip().lower()
-
-    matches = [
-        f for f in MOCK_FLIGHTS
-        if f["origin"] == origin_clean
-        and f["destination"] == dest_clean
-        and (f["cabin_class"].lower() == class_clean or class_clean == "any")
-    ]
+    matches = asyncio.run(async_search_flights(origin, destination, cabin_class))
 
     if not matches:
         return (
-            f"No direct flights found from {origin_clean} to {dest_clean} on {departure_date} "
+            f"No direct flights found from {origin.upper()} to {destination.upper()} on {departure_date} "
             f"for cabin class '{cabin_class}'."
         )
 
     results = [
-        f"Found {len(matches)} flight(s) from {origin_clean} to {dest_clean} on {departure_date}:"
+        f"Found {len(matches)} flight(s) from {origin.upper()} to {destination.upper()} on {departure_date}:"
     ]
     for flight in matches:
         open_seats_str = ", ".join(flight["available_seats"]) if flight["available_seats"] else "None (Sold Out)"
@@ -127,27 +65,26 @@ def search_flights(
 
 
 def get_flight_details(flight_number: str) -> str:
-    """Retrieves full details for a specific flight by flight number.
+    """Retrieves full details for a specific flight by flight number from database.
 
     Args:
         flight_number: Flight code string (e.g., 'AA-101', 'UA-405').
     """
-    flight_code = flight_number.strip().upper()
-    for flight in MOCK_FLIGHTS:
-        if flight["flight_number"] == flight_code:
-            open_seats = ", ".join(flight["available_seats"]) if flight["available_seats"] else "Sold Out"
-            return (
-                f"Flight Details for {flight['flight_number']}:\n"
-                f"Airline: {flight['airline']}\n"
-                f"Route: {flight['origin']} -> {flight['destination']}\n"
-                f"Schedule: Departs {flight['departure_time']}, Arrives {flight['arrival_time']}\n"
-                f"Duration: {flight['duration']}\n"
-                f"Cabin Class: {flight['cabin_class'].title()}\n"
-                f"Price: ${flight['price_usd']:.2f}\n"
-                f"Seats Open: {open_seats}"
-            )
+    flight = asyncio.run(async_get_flight(flight_number))
+    if not flight:
+        return f"Flight number {flight_number} not found in the flight schedules database."
 
-    return f"Flight number {flight_code} not found in the flight schedules database."
+    open_seats = ", ".join(flight["available_seats"]) if flight["available_seats"] else "Sold Out"
+    return (
+        f"Flight Details for {flight['flight_number']}:\n"
+        f"Airline: {flight['airline']}\n"
+        f"Route: {flight['origin']} -> {flight['destination']}\n"
+        f"Schedule: Departs {flight['departure_time']}, Arrives {flight['arrival_time']}\n"
+        f"Duration: {flight['duration']}\n"
+        f"Cabin Class: {flight['cabin_class'].title()}\n"
+        f"Price: ${flight['price_usd']:.2f}\n"
+        f"Seats Open: {open_seats}"
+    )
 
 
 def check_seat_map(flight_number: str) -> str:
@@ -156,17 +93,17 @@ def check_seat_map(flight_number: str) -> str:
     Args:
         flight_number: Flight code string (e.g., 'AA-101').
     """
-    flight_code = flight_number.strip().upper()
-    for flight in MOCK_FLIGHTS:
-        if flight["flight_number"] == flight_code:
-            seats = flight["available_seats"]
-            seats_str = ", ".join(seats) if seats else "No open seats remaining"
-            return (
-                f"Seat Map for Flight {flight_code} ({flight['airline']}):\n"
-                f"Available Seats: {seats_str}\n"
-                f"Cabin: {flight['cabin_class'].title()}"
-            )
-    return f"Flight {flight_code} not found."
+    flight = asyncio.run(async_get_flight(flight_number))
+    if not flight:
+        return f"Flight {flight_number} not found."
+
+    seats = flight["available_seats"]
+    seats_str = ", ".join(seats) if seats else "No open seats remaining"
+    return (
+        f"Seat Map for Flight {flight['flight_number']} ({flight['airline']}):\n"
+        f"Available Seats: {seats_str}\n"
+        f"Cabin: {flight['cabin_class'].title()}"
+    )
 
 
 def reserve_ticket(
@@ -176,7 +113,7 @@ def reserve_ticket(
     seat_number: Optional[str] = None,
     ctx: Optional[ToolContext] = None,
 ) -> str:
-    """Reserves an airplane ticket for a passenger on a specified flight.
+    """Reserves an airplane ticket for a passenger and persists record in SQLite database.
 
     Args:
         flight_number: Flight code string (e.g., 'AA-101').
@@ -185,63 +122,24 @@ def reserve_ticket(
         seat_number: Optional preferred seat from available seats.
         ctx: Injected ToolContext for maintaining session state.
     """
-    flight_code = flight_number.strip().upper()
-    target_flight = None
-
-    for flight in MOCK_FLIGHTS:
-        if flight["flight_number"] == flight_code:
-            target_flight = flight
-            break
-
-    if not target_flight:
-        return f"Error: Flight {flight_code} does not exist."
-
-    available = target_flight["available_seats"]
-    if not available:
-        return f"Error: Flight {flight_code} is sold out. No seats available."
-
-    if seat_number:
-        seat_clean = seat_number.strip().upper()
-        if seat_clean not in available:
-            return (
-                f"Error: Seat {seat_clean} is not available on flight {flight_code}. "
-                f"Open seats: {', '.join(available)}"
-            )
-        selected_seat = seat_clean
-    else:
-        selected_seat = available[0]
-
-    # Remove selected seat from flight's open seat list
-    available.remove(selected_seat)
-
-    # Generate PNR / Booking reference (6 alphanumeric uppercase characters)
-    pnr = "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
-
-    booking_record = {
-        "booking_reference": pnr,
-        "flight_number": flight_code,
-        "airline": target_flight["airline"],
-        "route": f"{target_flight['origin']} -> {target_flight['destination']}",
-        "passenger_name": passenger_name,
-        "passport_number": passport_number,
-        "seat_number": selected_seat,
-        "status": "CONFIRMED",
-        "price_paid_usd": target_flight["price_usd"],
-    }
+    try:
+        record = asyncio.run(async_reserve_ticket(flight_number, passenger_name, passport_number, seat_number))
+    except Exception as e:
+        return f"Error creating reservation: {e}"
 
     if ctx:
         user_bookings = ctx.get_state("user_bookings", [])
-        user_bookings.append(booking_record)
+        user_bookings.append(record)
         ctx.set_state("user_bookings", user_bookings)
 
     return (
-        f"Ticket successfully reserved!\n"
-        f"Booking Reference (PNR): {pnr}\n"
-        f"Passenger: {passenger_name}\n"
-        f"Flight: {flight_code} ({target_flight['airline']})\n"
-        f"Route: {target_flight['origin']} -> {target_flight['destination']}\n"
-        f"Seat: {selected_seat}\n"
-        f"Total Paid: ${target_flight['price_usd']:.2f}\n"
+        f"Ticket successfully reserved and persisted in database!\n"
+        f"Booking Reference (PNR): {record['booking_reference']}\n"
+        f"Passenger: {record['passenger_name']}\n"
+        f"Flight: {record['flight_number']} ({record['airline']})\n"
+        f"Route: {record['route']}\n"
+        f"Seat: {record['seat_number']}\n"
+        f"Total Paid: ${record['price_paid_usd']:.2f}\n"
         f"Status: CONFIRMED"
     )
 
@@ -250,66 +148,48 @@ def get_booking_details(
     booking_reference: str,
     ctx: Optional[ToolContext] = None,
 ) -> str:
-    """Retrieves details of an existing ticket reservation by booking reference (PNR).
+    """Retrieves details of an existing ticket reservation from persistent database by PNR.
 
     Args:
         booking_reference: The 6-character booking PNR code.
-        ctx: Injected ToolContext for retrieving session state.
+        ctx: Injected ToolContext.
     """
-    ref_clean = booking_reference.strip().upper()
+    record = asyncio.run(async_get_booking(booking_reference))
 
-    if ctx:
-        user_bookings = ctx.get_state("user_bookings", [])
-        for booking in user_bookings:
-            if booking["booking_reference"] == ref_clean:
-                return (
-                    f"Booking Record for PNR {ref_clean}:\n"
-                    f"Passenger: {booking['passenger_name']}\n"
-                    f"Flight: {booking['flight_number']} ({booking['airline']})\n"
-                    f"Route: {booking['route']}\n"
-                    f"Seat: {booking['seat_number']}\n"
-                    f"Status: {booking['status']}\n"
-                    f"Amount Paid: ${booking['price_paid_usd']:.2f}"
-                )
+    if record:
+        return (
+            f"Persistent Booking Record for PNR {record['booking_reference']}:\n"
+            f"Passenger: {record['passenger_name']}\n"
+            f"Passport No: {record['passport_number']}\n"
+            f"Flight: {record['flight_number']} ({record['airline']})\n"
+            f"Route: {record['route']}\n"
+            f"Seat: {record['seat_number']}\n"
+            f"Status: {record['status']}\n"
+            f"Amount Paid: ${record['price_paid_usd']:.2f}\n"
+            f"Created At: {record.get('created_at', 'N/A')}"
+        )
 
-    return f"No booking record found for reference '{ref_clean}' in this session."
+    return f"No persistent booking record found for reference '{booking_reference}' in database."
 
 
 def cancel_booking(
     booking_reference: str,
     ctx: Optional[ToolContext] = None,
 ) -> str:
-    """Cancels an existing ticket booking by booking reference (PNR).
+    """Cancels an existing ticket booking by PNR in persistent database.
 
     Args:
         booking_reference: The 6-character booking PNR code.
-        ctx: Injected ToolContext for modifying session state.
+        ctx: Injected ToolContext.
     """
-    ref_clean = booking_reference.strip().upper()
-
-    if ctx:
-        user_bookings = ctx.get_state("user_bookings", [])
-        for booking in user_bookings:
-            if booking["booking_reference"] == ref_clean:
-                if booking["status"] == "CANCELLED":
-                    return f"Booking {ref_clean} is already CANCELLED."
-
-                booking["status"] = "CANCELLED"
-                ctx.set_state("user_bookings", user_bookings)
-
-                # Return seat back to flight's available seat pool
-                flight_code = booking["flight_number"]
-                seat = booking["seat_number"]
-                for f in MOCK_FLIGHTS:
-                    if f["flight_number"] == flight_code:
-                        if seat not in f["available_seats"]:
-                            f["available_seats"].append(seat)
-                            f["available_seats"].sort()
-                        break
-
-                return f"Booking {ref_clean} for passenger {booking['passenger_name']} has been CANCELLED. Refund issued to original payment method."
-
-    return f"Unable to cancel. Booking reference '{ref_clean}' was not found in active session."
+    try:
+        record = asyncio.run(async_cancel_booking(booking_reference))
+        return (
+            f"Booking {record['booking_reference']} for passenger {record['passenger_name']} "
+            f"has been CANCELLED in database. Seat {record['seat_number']} restored to flight inventory."
+        )
+    except Exception as e:
+        return f"Unable to cancel: {e}"
 
 
 def calculate_baggage_fees(
@@ -360,4 +240,7 @@ ALL_TOOLS = [
     get_booking_details,
     cancel_booking,
     calculate_baggage_fees,
+    save_user_preference,
+    recall_user_preferences,
+    compact_conversation_memory,
 ]
