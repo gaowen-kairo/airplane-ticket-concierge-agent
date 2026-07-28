@@ -1,19 +1,19 @@
 """Airplane Ticket Concierge Orchestration Agent.
 
-An autonomous multi-agent AI system built with the Google Antigravity (AGY) SDK.
+An enterprise multi-agent AI system built with the Google Antigravity (AGY) SDK.
 Integrates:
-  - Multi-Agent Pattern: Orchestrator delegating to specialized subagents/tools
-  - Model Routing: Task-based tiering between fast (flash) and reasoning (pro) models
-  - Security Guardrails: Input validation, passport/PNR policies
-  - Human-In-The-Loop (HITL) Hooks: Confirmation interceptor before executing high-stakes transactions
-  - Persistent SQLite Database: Database backed state for flight inventory, reservations & user memories
-  - History Context Compaction & Async Memory Operations: Memory tools, persistence, and compaction hooks
+  - Multi-Agent Delegation: Main orchestrator coordinating subagents & delegation tools
+  - Model Routing: Fast (flash) and Reasoning (pro) model tiering
+  - Security Guardrails: Input validation, passport & PNR policies
+  - Human-In-The-Loop (HITL) Hooks: Confirmation interceptor for high-stakes transactions
+  - Structured Logging & Tracing: JSON logging, intent vs. outcome logging, PII redactor
+  - Secret Manager Integration: Secure credential retrieval via secrets_manager
+  - Pydantic Validation & Recovery Guidance: Strict schema validation with LLM recovery hints
 """
 
 import asyncio
 import os
 import sys
-import tempfile
 from typing import Optional
 
 from google.antigravity import Agent, LocalAgentConfig, types
@@ -21,25 +21,39 @@ from google.antigravity.types import TemplatedSystemInstructions
 
 from database import _init_db_tables
 from hooks import get_all_hooks, human_approval_handler
+from logging_tracing import logger
+from secrets_manager import get_secret
 from security import create_security_policies
-from subagents import route_model_for_task
+from subagents import (
+    delegate_to_booking_specialist,
+    delegate_to_search_specialist,
+    route_model_for_task,
+)
 from tools import ALL_TOOLS
+
+# Expand main agent tools to include explicit subagent delegation tools
+ORCHESTRATOR_TOOLS = ALL_TOOLS + [
+    delegate_to_search_specialist,
+    delegate_to_booking_specialist,
+]
 
 MAIN_CONCIERGE_SYSTEM_INSTRUCTION = """
 You are SkyConcierge, an elite, professional, and secure Airplane Ticket Concierge AI System.
 
-Architecture & Capabilities:
-1. Multi-Agent Delegation: You orchestrate travel requests and spawn subagents or execute specialized tools.
+Architecture & Subagent Delegation:
+1. Multi-Agent Orchestration: You coordinate specialized subagent workers:
+   - Use 'delegate_to_search_specialist' for complex flight searches, schedules, and baggage policies.
+   - Use 'delegate_to_booking_specialist' for ticket reservations, passenger identity verification, and cancellations.
 2. Safety & Security: High-stakes actions (reserving tickets, cancelling bookings) require explicit human confirmation.
 3. Persistent Database & State: All flight schedules, seat inventory, passenger tickets, and booking PNRs are backed by a persistent database.
-4. Async Memory & History Compaction: You can save traveler preferences across sessions and compact long conversation histories into context summaries.
+4. Error Recovery: If a tool returns validation errors or failure guidance, follow the provided LLM recovery instructions to fix inputs.
 
 Services:
 - Search flights by origin, destination, date, cabin class.
 - Inspect seat maps and calculate baggage allowances.
 - Process ticket reservations (requiring valid passenger name and passport credentials).
-- Save and recall traveler preferences (seat preference, dietary needs, passport info).
-- Compact long conversation memory when needed to optimize prompt context.
+- Save and recall traveler preferences.
+- Compact long conversation memory when needed.
 
 Guidelines:
 - Maintain a polite, professional, and clear tone.
@@ -60,8 +74,8 @@ def create_agent(
     """Factory function to instantiate the main SkyConcierge Orchestration Agent.
 
     Args:
-        api_key: Optional Gemini API key.
-        app_data_dir: Optional storage directory path for artifacts and scratch files.
+        api_key: Optional Gemini API key. If omitted, retrieves from Secret Manager or GEMINI_API_KEY env.
+        app_data_dir: Optional storage directory path for artifacts.
         save_dir: Optional persistence directory path for conversation history trajectories.
         conversation_id: Optional conversation ID to resume past persistent sessions.
         model: Optional model identifier override.
@@ -70,36 +84,39 @@ def create_agent(
     Returns:
         Instantiated Agent object ready for use in async context manager.
     """
-    # 1. Synchronously initialize persistent database tables if needed
+    # 1. Initialize persistent database tables
     _init_db_tables()
+
+    # 2. Retrieve API Key securely from Secret Manager or environment
+    resolved_api_key = api_key or get_secret("GEMINI_API_KEY")
 
     selected_model = model or route_model_for_task("complex")
     templated_si = TemplatedSystemInstructions(
         identity=MAIN_CONCIERGE_SYSTEM_INSTRUCTION
     )
 
-    # 2. Security policies & guardrails
+    # 3. Security policies & guardrails
     policies = create_security_policies(approval_handler=approval_handler)
 
-    # 3. Lifecycle & Compaction hooks
+    # 4. Lifecycle, compaction & LLM recovery hooks
     registered_hooks = get_all_hooks()
 
-    # 4. Capability configuration: enable subagent spawning
+    # 5. Capabilities: subagents and write tools
     capabilities = types.CapabilitiesConfig(
         enable_subagents=True,
     )
 
     config_kwargs = {
         "model": selected_model,
-        "tools": ALL_TOOLS,
+        "tools": ORCHESTRATOR_TOOLS,
         "system_instructions": templated_si,
         "policies": policies,
         "hooks": registered_hooks,
         "capabilities": capabilities,
     }
 
-    if api_key:
-        config_kwargs["api_key"] = api_key
+    if resolved_api_key:
+        config_kwargs["api_key"] = resolved_api_key
     if app_data_dir:
         config_kwargs["app_data_dir"] = app_data_dir
     if save_dir:
@@ -108,6 +125,7 @@ def create_agent(
         config_kwargs["conversation_id"] = conversation_id
 
     config = LocalAgentConfig(**config_kwargs)
+    logger.log("INFO", f"SkyConcierge Agent created with model '{selected_model}' and {len(ORCHESTRATOR_TOOLS)} tools.")
     return Agent(config=config)
 
 
@@ -115,7 +133,7 @@ async def run_interactive_loop(agent: Agent):
     """Interactive terminal execution loop with SkyConcierge."""
     print("\n==================================================")
     print(" 🛫 SkyConcierge Multi-Agent System Ready ")
-    print(" (Multi-Agent • Database State • History Compaction • HITL Security) ")
+    print(" (Subagent Delegation • Pydantic Validation • HITL Security) ")
     print(" Type 'exit' or 'quit' to end session.")
     print("==================================================\n")
 

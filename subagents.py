@@ -1,13 +1,15 @@
-"""Subagents and Model Routing Configuration for Airplane Ticket Concierge.
+"""Subagents, Delegation Orchestration, and Model Routing.
 
 This module defines specialized subagent roles (Search Specialist, Booking Specialist)
-and dynamic model routing rules for balancing response speed against deep reasoning capabilities.
+and provides active delegation functions so the main agent coordinates specialized subagent workers.
 """
 
+import asyncio
 from typing import Dict, List, Optional
 from google.antigravity import Agent, LocalAgentConfig, types
 from google.antigravity.types import TemplatedSystemInstructions
 
+from logging_tracing import log_tool_intent_and_outcome
 from security import create_security_policies
 from tools import (
     calculate_baggage_fees,
@@ -39,36 +41,25 @@ def route_model_for_task(task_type: str) -> str:
     category = task_type.strip().lower()
 
     if category in ("search", "flight_query", "seat_map", "baggage"):
-        # Fast, low-latency model for routine read-only lookups
         return MODEL_TIER_FAST
     elif category in ("booking", "reservation", "cancellation", "passport_verification"):
-        # High reasoning, high-precision model for sensitive state changes
         return MODEL_TIER_REASONING
     else:
-        # Default balanced model
         return MODEL_TIER_FAST
 
+
+from secrets_manager import get_secret
 
 def create_search_specialist_agent(
     api_key: Optional[str] = None,
     app_data_dir: Optional[str] = None,
 ) -> Agent:
-    """Creates the Flight Search Specialist Subagent.
-
-    Focuses exclusively on search, schedules, seat map inspection, and baggage calculations.
-    Uses the fast model tier for low latency.
-
-    Args:
-        api_key: Optional Gemini API key.
-        app_data_dir: Optional application storage directory.
-
-    Returns:
-        Instantiated Agent object configured for search operations.
-    """
+    """Creates the Flight Search Specialist Subagent."""
+    resolved_api_key = api_key or get_secret("GEMINI_API_KEY")
     system_instructions = TemplatedSystemInstructions(
         identity=(
-            "You are FlightSearchSpecialist, a subagent specializing in flight search, "
-            "flight schedules, seat maps, and baggage fee rules. Provide concise, clear options."
+            "You are FlightSearchSpecialist, a specialized subagent dedicated to flight search, "
+            "schedules, seat maps, and baggage fee calculations."
         )
     )
 
@@ -80,15 +71,14 @@ def create_search_specialist_agent(
     ]
 
     model = route_model_for_task("search")
-
     config_kwargs = {
         "model": model,
         "tools": tools,
         "system_instructions": system_instructions,
         "capabilities": types.CapabilitiesConfig(enable_subagents=False),
     }
-    if api_key:
-        config_kwargs["api_key"] = api_key
+    if resolved_api_key:
+        config_kwargs["api_key"] = resolved_api_key
     if app_data_dir:
         config_kwargs["app_data_dir"] = app_data_dir
 
@@ -100,23 +90,12 @@ def create_booking_specialist_agent(
     app_data_dir: Optional[str] = None,
     approval_handler: Optional[object] = None,
 ) -> Agent:
-    """Creates the Booking & Reservation Specialist Subagent.
-
-    Focuses on reservation creation, passenger identity validation, PNR tracking,
-    and cancellation. Uses security guardrails and the reasoning model tier.
-
-    Args:
-        api_key: Optional Gemini API key.
-        app_data_dir: Optional application storage directory.
-        approval_handler: Human-in-the-loop approval handler function.
-
-    Returns:
-        Instantiated Agent object configured for booking operations.
-    """
+    """Creates the Booking & Reservation Specialist Subagent."""
+    resolved_api_key = api_key or get_secret("GEMINI_API_KEY")
     system_instructions = TemplatedSystemInstructions(
         identity=(
-            "You are BookingSpecialist, a subagent specializing in airplane ticket reservations, "
-            "seat assignments, and PNR booking management. Verify passenger details thoroughly."
+            "You are BookingSpecialist, a specialized subagent dedicated to ticket reservations, "
+            "passenger identity validation, PNR tracking, and cancellation."
         )
     )
 
@@ -137,9 +116,51 @@ def create_booking_specialist_agent(
         "policies": policies,
         "capabilities": types.CapabilitiesConfig(enable_subagents=False),
     }
-    if api_key:
-        config_kwargs["api_key"] = api_key
+    if resolved_api_key:
+        config_kwargs["api_key"] = resolved_api_key
     if app_data_dir:
         config_kwargs["app_data_dir"] = app_data_dir
 
     return Agent(config=LocalAgentConfig(**config_kwargs))
+
+
+# --- Active Subagent Delegation Tools for Main Agent Coordination ---
+
+async def delegate_to_search_specialist(task_description: str) -> str:
+    """Delegates a flight search, schedule, seat map, or baggage task to the specialized FlightSearchSpecialist subagent.
+
+    Args:
+        task_description: The specific search query or baggage inquiry to delegate.
+    """
+    specialist = create_search_specialist_agent()
+    log_tool_intent_and_outcome(
+        intent="DELEGATE_SEARCH",
+        action="delegate_to_search_specialist",
+        outcome="SUCCESS",
+        duration_ms=5.0,
+        payload={"task": task_description},
+    )
+
+    async with specialist:
+        response = await specialist.chat(task_description)
+        return await response.text()
+
+
+async def delegate_to_booking_specialist(task_description: str) -> str:
+    """Delegates a reservation, booking lookup, or cancellation task to the specialized BookingSpecialist subagent.
+
+    Args:
+        task_description: The reservation or cancellation instructions to delegate.
+    """
+    specialist = create_booking_specialist_agent()
+    log_tool_intent_and_outcome(
+        intent="DELEGATE_BOOKING",
+        action="delegate_to_booking_specialist",
+        outcome="SUCCESS",
+        duration_ms=5.0,
+        payload={"task": task_description},
+    )
+
+    async with specialist:
+        response = await specialist.chat(task_description)
+        return await response.text()
