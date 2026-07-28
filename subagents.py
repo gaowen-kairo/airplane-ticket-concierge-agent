@@ -2,6 +2,7 @@
 
 This module defines specialized subagent roles (Search Specialist, Booking Specialist)
 and provides active delegation functions so the main agent coordinates specialized subagent workers.
+Integrates TraceSpan for OpenTelemetry-compatible parent-child span linkage across subagents.
 """
 
 import asyncio
@@ -9,7 +10,8 @@ from typing import Dict, List, Optional
 from google.antigravity import Agent, LocalAgentConfig, types
 from google.antigravity.types import TemplatedSystemInstructions
 
-from logging_tracing import log_tool_intent_and_outcome
+from logging_tracing import TraceSpan, log_tool_intent_and_outcome
+from secrets_manager import get_secret
 from security import create_security_policies
 from tools import (
     calculate_baggage_fees,
@@ -27,17 +29,7 @@ MODEL_TIER_REASONING = "gemini-3.5-pro"
 
 
 def route_model_for_task(task_type: str) -> str:
-    """Dynamic Model Router.
-
-    Selects the optimal Gemini model identifier based on task complexity, speed needs,
-    and precision requirements.
-
-    Args:
-        task_type: Task category ('search', 'baggage', 'booking', 'cancellation', 'complex').
-
-    Returns:
-        Model identifier string.
-    """
+    """Dynamic Model Router."""
     category = task_type.strip().lower()
 
     if category in ("search", "flight_query", "seat_map", "baggage"):
@@ -47,8 +39,6 @@ def route_model_for_task(task_type: str) -> str:
     else:
         return MODEL_TIER_FAST
 
-
-from secrets_manager import get_secret
 
 def create_search_specialist_agent(
     api_key: Optional[str] = None,
@@ -124,7 +114,7 @@ def create_booking_specialist_agent(
     return Agent(config=LocalAgentConfig(**config_kwargs))
 
 
-# --- Active Subagent Delegation Tools for Main Agent Coordination ---
+# --- Active Subagent Delegation Tools with Distributed Trace Context Linkage ---
 
 async def delegate_to_search_specialist(task_description: str) -> str:
     """Delegates a flight search, schedule, seat map, or baggage task to the specialized FlightSearchSpecialist subagent.
@@ -132,18 +122,11 @@ async def delegate_to_search_specialist(task_description: str) -> str:
     Args:
         task_description: The specific search query or baggage inquiry to delegate.
     """
-    specialist = create_search_specialist_agent()
-    log_tool_intent_and_outcome(
-        intent="DELEGATE_SEARCH",
-        action="delegate_to_search_specialist",
-        outcome="SUCCESS",
-        duration_ms=5.0,
-        payload={"task": task_description},
-    )
-
-    async with specialist:
-        response = await specialist.chat(task_description)
-        return await response.text()
+    with TraceSpan("delegate_to_search_specialist", intent="DELEGATE_SEARCH", payload={"task": task_description}):
+        specialist = create_search_specialist_agent()
+        async with specialist:
+            response = await specialist.chat(task_description)
+            return await response.text()
 
 
 async def delegate_to_booking_specialist(task_description: str) -> str:
@@ -152,15 +135,8 @@ async def delegate_to_booking_specialist(task_description: str) -> str:
     Args:
         task_description: The reservation or cancellation instructions to delegate.
     """
-    specialist = create_booking_specialist_agent()
-    log_tool_intent_and_outcome(
-        intent="DELEGATE_BOOKING",
-        action="delegate_to_booking_specialist",
-        outcome="SUCCESS",
-        duration_ms=5.0,
-        payload={"task": task_description},
-    )
-
-    async with specialist:
-        response = await specialist.chat(task_description)
-        return await response.text()
+    with TraceSpan("delegate_to_booking_specialist", intent="DELEGATE_BOOKING", payload={"task": task_description}):
+        specialist = create_booking_specialist_agent()
+        async with specialist:
+            response = await specialist.chat(task_description)
+            return await response.text()
