@@ -2,29 +2,35 @@
 
 An enterprise-grade autonomous AI travel concierge system built with the [Google Antigravity (AGY) SDK](file:///usr/local/google/home/gaowen/.gemini/config/plugins/google-antigravity-sdk/skills/google-antigravity-sdk/SKILL.md).
 
-SkyConcierge features **OpenTelemetry-compatible distributed tracing**, **multi-agent orchestration**, **task-based model routing**, **declarative security guardrails**, **human-in-the-loop (HITL) hooks**, **persistent SQLite database storage**, **history context compaction**, and **async memory operations**.
+SkyConcierge features **Infrastructure as Code (IaC) via Terraform**, **OpenTelemetry-compatible distributed tracing**, **multi-agent orchestration**, **task-based model routing**, **declarative security guardrails**, **human-in-the-loop (HITL) hooks**, **persistent SQLite database storage**, **history context compaction**, and **async memory operations**.
 
 ---
 
 ## Key Architectural Capabilities
 
-### 🌐 1. OpenTelemetry Distributed Tracing & Span Linkage
+### 🏗️ 1. Infrastructure as Code (IaC) via Terraform
+- **Complete GCP Provisioning (`terraform/`)**: Automated resource provisioning using Terraform (`main.tf`, `variables.tf`, `outputs.tf`).
+- **GCP Resources Managed**:
+  - **Cloud Run v2**: Serverless container execution with auto-scaling.
+  - **Secret Manager**: Secure API key storage and IAM secret accessor bindings.
+  - **Artifact Registry**: Docker container image repository (`skyconcierge-repo`).
+  - **Cloud Storage Bucket**: Versioned GCS bucket for persistent agent state and backups.
+  - **IAM & Least-Privilege**: Dedicated Service Account (`skyconcierge-agent-sa`).
+
+### 🌐 2. OpenTelemetry Distributed Tracing & Span Linkage
 - **Trace Context Propagation**: Propagates a root `trace_id` across turns, subagents, and tool calls using Python `contextvars`.
-- **Parent-Child Span Linkage (`TraceSpan`)**: Automatically links `parent_span_id` -> `span_id` across nested execution blocks (e.g. Orchestrator -> Subagent -> Tool), forming a complete hierarchical execution trace graph.
+- **Parent-Child Span Linkage (`TraceSpan`)**: Automatically links `parent_span_id` -> `span_id` across nested execution blocks (Orchestrator -> Subagent -> Tool).
 - **Intent vs. Outcome Observability**: Every log entry records `intent`, `action`, `outcome`, `duration_ms`, `trace_id`, `span_id`, and `parent_span_id`.
 - **PII Redactor (`PIIRedactor`)**: Masks passport numbers (`P123****`), credit cards, and SSNs in log outputs.
 
-### 💾 2. Persistent SQLite Database Storage
+### 💾 3. Persistent SQLite Database Storage
 - **Database Backend (`concierge.db`)**: Replaces transient in-memory dictionaries with a persistent, thread-safe SQLite database handled asynchronously via `database.py`.
-- **Survives Restart**: All flight inventories, seat allocations, PNR booking records, traveler identity profiles, and context compaction summaries survive application restarts.
+- **Survives Restart**: Flight inventories, seat allocations, PNR booking records, traveler profiles, and compaction summaries survive application restarts.
 
-### 🧠 3. History Context Compaction & Trajectory Persistence
+### 🧠 4. History Context Compaction & Trajectory Persistence
 - **Context Compaction Hook (`@hooks.on_compaction`)**: Listens to context window compaction events.
 - **Trajectory Persistence (`save_dir` & `conversation_id`)**: Persists conversation trajectories to disk for session resumption.
 - **Memory Compaction Tool (`compact_conversation_memory`)**: Summarizes long turn histories into structured state memory.
-
-### ⚡ 4. Async Memory Operations
-- **Async Memory Read/Write**: Asynchronously stores, updates, and recalls user travel preferences, loyalty numbers, and dietary requirements using `memory.py`.
 
 ### 🤖 5. Multi-Agent Delegation Pattern
 - **Main Orchestrator (`SkyConcierge`)**: Coordinates specialized subagent workers.
@@ -42,7 +48,7 @@ SkyConcierge features **OpenTelemetry-compatible distributed tracing**, **multi-
 
 ```text
 .
-├── README.md           # System architecture, tracing, & usage guide
+├── README.md           # Architecture, IaC, tracing, & usage guide
 ├── requirements.txt    # Package dependencies
 ├── agent.py            # Main SkyConcierge orchestrator & interactive CLI entry point
 ├── database.py         # Persistent SQLite database storage & async CRUD queries
@@ -54,6 +60,12 @@ SkyConcierge features **OpenTelemetry-compatible distributed tracing**, **multi-
 ├── hooks.py            # Compaction hook, HITL approval handler, LLM recovery hooks
 ├── tools.py            # Database-backed flight search, seat map, reservation, & baggage tools
 ├── test_eval_suite.py  # Automated 6-category evaluation test suite
+├── terraform/          # Infrastructure as Code (IaC) Terraform configurations
+│   ├── main.tf
+│   ├── variables.tf
+│   ├── outputs.tf
+│   ├── terraform.tfvars.example
+│   └── README.md
 └── example_usage.py    # Feature demonstration script
 ```
 
@@ -73,20 +85,12 @@ pip install -r requirements.txt
 export GEMINI_API_KEY="your-gemini-api-key"
 ```
 
----
-
-## Running SkyConcierge & Evaluation Suite
-
-### Automated Evaluation Test Suite
+### 3. Deploy Infrastructure via Terraform (Optional)
 
 ```bash
-python -m unittest test_eval_suite.py
-```
-
-### Interactive Terminal CLI
-
-```bash
-python agent.py
+cd terraform
+terraform init
+terraform apply
 ```
 
 ---
